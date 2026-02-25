@@ -91,6 +91,7 @@ public class PlayerActivity extends AppCompatActivity
   protected @Nullable ExoPlayer player;
 
   private boolean isShowingTrackSelectionDialog;
+  private boolean useL3Fallback = false;
   private Button selectTracksButton;
   private DataSource.Factory dataSourceFactory;
   private List<MediaItem> mediaItems;
@@ -112,10 +113,44 @@ public class PlayerActivity extends AppCompatActivity
 
   // Activity lifecycle.
 
+  @OptIn(markerClass = UnstableApi.class)
+  private static boolean hasBrokenMtkSecureDecoder() {
+    try {
+      List<androidx.media3.exoplayer.mediacodec.MediaCodecInfo> decoderInfos =
+          androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(
+              "video/avc", /* secure= */ true, /* tunneling= */ false);
+      for (androidx.media3.exoplayer.mediacodec.MediaCodecInfo info : decoderInfos) {
+        if ("c2.mtk.avc.decoder.secure".equals(info.name)) {
+          Log.w("PlayerActivity", "Detected broken MTK secure decoder, will use L3 fallback");
+          return true;
+        }
+      }
+    } catch (Exception e) {
+      Log.w("PlayerActivity", "Could not query decoders for MTK detection", e);
+    }
+    return false;
+  }
+
+  /**
+   * Mark the video SurfaceView as secure so that screen capture shows black only on
+   * the video layer while player controls and debug info remain visible normally.
+   */
+  @OptIn(markerClass = UnstableApi.class)
+  private void applySecureWindowFlag(boolean secure) {
+    android.view.View videoSurface = playerView.getVideoSurfaceView();
+    if (videoSurface instanceof android.view.SurfaceView) {
+      ((android.view.SurfaceView) videoSurface).setSecure(secure);
+      Log.d("PlayerActivity", "SurfaceView.setSecure(" + secure + ")");
+    }
+  }
+
   @Override
   public void onCreate(@Nullable Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     dataSourceFactory = DemoUtil.getDataSourceFactory(/* context= */ this);
+    if (!useL3Fallback && hasBrokenMtkSecureDecoder()) {
+      useL3Fallback = true;
+    }
 
     setContentView();
     debugRootView = findViewById(R.id.controls_root);
@@ -127,6 +162,9 @@ public class PlayerActivity extends AppCompatActivity
     playerView.setControllerVisibilityListener(this);
     playerView.setErrorMessageProvider(new PlayerErrorMessageProvider());
     playerView.requestFocus();
+    // Secure only the video surface layer so screen capture shows black on the video
+    // while player controls and debug info remain visible on the receiver side.
+    applySecureWindowFlag(useL3Fallback);
 
     if (savedInstanceState != null) {
       trackSelectionParameters =
@@ -312,10 +350,6 @@ public class PlayerActivity extends AppCompatActivity
 
   @OptIn(markerClass = UnstableApi.class) // DRM configuration
   private MediaSource.Factory createMediaSourceFactory() {
-    DefaultDrmSessionManagerProvider drmSessionManagerProvider =
-        new DefaultDrmSessionManagerProvider();
-    drmSessionManagerProvider.setDrmHttpDataSourceFactory(
-        DemoUtil.getHttpDataSourceFactory(/* context= */ this));
     ImaServerSideAdInsertionMediaSource.AdsLoader.Builder serverSideAdLoaderBuilder =
         new ImaServerSideAdInsertionMediaSource.AdsLoader.Builder(/* context= */ this, playerView);
     if (serverSideAdsLoaderState != null) {
@@ -327,20 +361,94 @@ public class PlayerActivity extends AppCompatActivity
             serverSideAdsLoader,
             new DefaultMediaSourceFactory(/* context= */ this)
                 .setDataSourceFactory(dataSourceFactory));
-    
-    return new DefaultMediaSourceFactory(/* context= */ this)
-        .setDataSourceFactory(dataSourceFactory)
-        .setDrmSessionManagerProvider(drmSessionManagerProvider)
-        .setLocalAdInsertionComponents(
-            this::getClientSideAdsLoader, /* adViewProvider= */ playerView)
-        .setServerSideAdInsertionMediaSourceFactory(imaServerSideAdInsertionMediaSourceFactory);
+
+    DefaultMediaSourceFactory mediaSourceFactory =
+        new DefaultMediaSourceFactory(/* context= */ this)
+            .setDataSourceFactory(dataSourceFactory)
+            .setLocalAdInsertionComponents(
+                this::getClientSideAdsLoader, /* adViewProvider= */ playerView)
+            .setServerSideAdInsertionMediaSourceFactory(imaServerSideAdInsertionMediaSourceFactory);
+
+    if (useL3Fallback) {
+      // L3 fallback: force Widevine L3 to avoid c2.mtk.avc.decoder.secure issues
+      Log.d("PlayerActivity", "DRM: Using L3 fallback provider");
+      DataSource.Factory httpDataSourceFactory = DemoUtil.getHttpDataSourceFactory(/* context= */ this);
+      androidx.media3.exoplayer.drm.DrmSessionManagerProvider l3DrmProvider =
+          mediaItem -> {
+            MediaItem.DrmConfiguration drmConfiguration = mediaItem.localConfiguration != null
+                ? mediaItem.localConfiguration.drmConfiguration
+                : null;
+            if (drmConfiguration == null) {
+              return androidx.media3.exoplayer.drm.DrmSessionManager.DRM_UNSUPPORTED;
+            }
+            try {
+              HttpMediaDrmCallback drmCallback = new HttpMediaDrmCallback(
+                  drmConfiguration.licenseUri == null ? null : drmConfiguration.licenseUri.toString(),
+                  httpDataSourceFactory);
+              for (Map.Entry<String, String> entry : drmConfiguration.licenseRequestHeaders.entrySet()) {
+                drmCallback.setKeyRequestProperty(entry.getKey(), entry.getValue());
+              }
+              ExoMediaDrm.Provider l3MediaProvider = uuid -> {
+                try {
+                  ExoMediaDrm mediaDrm = FrameworkMediaDrm.newInstance(uuid);
+                  mediaDrm.setPropertyString("securityLevel", "L3");
+                  Log.d("PlayerActivity", "DRM: Forced L3 security level for fallback playback");
+                  return mediaDrm;
+                } catch (UnsupportedDrmException e) {
+                  throw new RuntimeException("Failed to create MediaDrm", e);
+                }
+              };
+              DefaultDrmSessionManager drmSessionManager =
+                  new DefaultDrmSessionManager.Builder()
+                      .setUuidAndExoMediaDrmProvider(drmConfiguration.scheme, l3MediaProvider)
+                      .setMultiSession(drmConfiguration.multiSession)
+                      .build(drmCallback);
+              drmSessionManager.setMode(DefaultDrmSessionManager.MODE_PLAYBACK,
+                  drmConfiguration.getKeySetId());
+              return drmSessionManager;
+            } catch (Exception e) {
+              Log.e("PlayerActivity", "DRM L3 setup failed", e);
+              return androidx.media3.exoplayer.drm.DrmSessionManager.DRM_UNSUPPORTED;
+            }
+          };
+      mediaSourceFactory.setDrmSessionManagerProvider(l3DrmProvider);
+    }
+
+    return mediaSourceFactory;
+  }
+
+  @OptIn(markerClass = UnstableApi.class)
+  private boolean isSecureDecoderError(PlaybackException error) {
+    Throwable cause = error.getCause();
+    // Case 1: Decoder failed to initialize (secureDecoderRequired flag is set)
+    if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
+        && cause instanceof DecoderInitializationException
+        && ((DecoderInitializationException) cause).secureDecoderRequired) {
+      return true;
+    }
+    // Case 2: Decoder crashed at runtime (c2.mtk.avc.decoder.secure fails during decode)
+    if (error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED) {
+      while (cause != null) {
+        if (cause instanceof androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException) {
+          androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException decoderEx =
+              (androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException) cause;
+          if (decoderEx.codecInfo != null
+              && decoderEx.codecInfo.name != null
+              && decoderEx.codecInfo.name.contains("secure")) {
+            return true;
+          }
+        }
+        cause = cause.getCause();
+      }
+    }
+    return false;
   }
 
   @OptIn(markerClass = UnstableApi.class)
   private void setRenderersFactory(
       ExoPlayer.Builder playerBuilder, boolean preferExtensionDecoders) {
     RenderersFactory renderersFactory =
-        DemoUtil.buildRenderersFactory(/* context= */ this, preferExtensionDecoders);
+        DemoUtil.buildRenderersFactory(/* context= */ this, preferExtensionDecoders, useL3Fallback);
     playerBuilder.setRenderersFactory(renderersFactory);
   }
 
@@ -493,6 +601,13 @@ public class PlayerActivity extends AppCompatActivity
       if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
         player.seekToDefaultPosition();
         player.prepare();
+      } else if (!useL3Fallback && isSecureDecoderError(error)) {
+        Log.w("PlayerActivity", "Secure decoder failed (c2.mtk.avc.decoder.secure), retrying with Widevine L3");
+        useL3Fallback = true;
+        applySecureWindowFlag(/* secure= */ true);
+        updateStartPosition();
+        releasePlayer();
+        initializePlayer();
       } else {
         updateButtonVisibility();
         showControls();

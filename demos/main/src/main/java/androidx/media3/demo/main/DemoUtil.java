@@ -84,40 +84,34 @@ public final class DemoUtil {
   }
 
   @OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
-public static RenderersFactory buildRenderersFactory(
-    Context context, boolean preferExtensionRenderer) {
-  @DefaultRenderersFactory.ExtensionRendererMode
-  int extensionRendererMode =
-      useExtensionRenderers()
-          ? (preferExtensionRenderer
-              ? DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
-              : DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-          : DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF;
-  return new DefaultRenderersFactory(context.getApplicationContext())
-      .setExtensionRendererMode(extensionRendererMode)
-      .setMediaCodecSelector(
-          new MediaCodecSelector() {
-            @Override
-            public List<MediaCodecInfo> getDecoderInfos(
-                String mimeType, boolean requiresSecureDecoder, boolean requiresTunnelingDecoder)
-                throws DecoderQueryException {
+  public static RenderersFactory buildRenderersFactory(
+      Context context, boolean preferExtensionRenderer, boolean filterSecureDecoder) {
+    @DefaultRenderersFactory.ExtensionRendererMode
+    int extensionRendererMode =
+        useExtensionRenderers()
+            ? (preferExtensionRenderer
+                ? DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                : DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            : DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF;
+    return new DefaultRenderersFactory(context.getApplicationContext())
+        .setExtensionRendererMode(extensionRendererMode)
+        .setMediaCodecSelector(
+            (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
               List<MediaCodecInfo> decoderInfos =
                   MediaCodecSelector.DEFAULT.getDecoderInfos(
                       mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
-              if ("video/avc".equals(mimeType)) {
+              if (filterSecureDecoder) {
                 List<MediaCodecInfo> filtered = new ArrayList<>(decoderInfos);
-                // Filter out the crashing decoder
                 for (int i = filtered.size() - 1; i >= 0; i--) {
-                  if ("c2.mtk.avc.decoder.secure".equals(filtered.get(i).name)) {
+                  if (filtered.get(i).secure) {
                     filtered.remove(i);
                   }
                 }
                 return filtered;
               }
               return decoderInfos;
-            }
-          });
-}
+            });
+  }
 
 
   @OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)

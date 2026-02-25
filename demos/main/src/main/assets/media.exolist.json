@@ -4,9 +4,9 @@
     "samples": [
       {
         "name": "SFV (DASH)",
-        "uri": "https://sfvseries.stm.trueid.net/sfvseries_wv/SFS202510002018_m_auto.smil/manifest.mpd?appid=tvn&type=sfvseries&visitor=mobile&drm=wv3&uid=134776001&did=MGZmYjdkOGMwOTMxYzJjZQ&mpass=aPD8-DJ9dfWqgS3ZlSqcv0qBk9luySOjB_l2eGSXPJC043WtwR7bA64jzP6fENV-Yp_M3RD2df27VTk04TIIzIdyIZmmYHrV1aCWT4CJSNEgICRPjlR-sNF-_7JKXnAGNM0&sid=3bc96ec868&rt=1770027034&ds=172800&tk=4aOU2ZOkhGVCz5hOziYtogrnJTRFfmU5c_kn4alBdFY",
+        "uri": "https://sfvon.stm.trueid.net/sfvseries_wv/SFS202505000679_m_auto.smil/manifest.mpd?appid=tvn&type=sfvseries&visitor=mobile&drm=wv3&uid=22096225&did=MDFlZjUxNGZhNTExMjAzYw&mpass=2mTB3zr1gvfXdd8WHkI21XJLJh9F2qH0U5Z8Vh5Jp-lV6v_uXxkjqs39vviB0a0iQN5x_vqVonNUT-_9I9lWuLZfQZnSDYOiSopkbeVXEXEgIOq6HYqmGnFQxGgEgMVYOz4&sid=12cf1d178b&rt=1772007916&ds=172800&tk=rVGSVnFkiweqkIyydUUkGcar6QjLf9EXgl7zdWwxvVg",
         "drm_scheme": "widevine",
-        "drm_license_uri": "https://kd-sfv.stm.trueid.net/sfv/widevine?appid=tvn&type=sfvseries&visitor=mobile&drm=wv3&uid=134776001&did=MGZmYjdkOGMwOTMxYzJjZQ&mpass=aPD8-DJ9dfWqgS3ZlSqcv0qBk9luySOjB_l2eGSXPJC043WtwR7bA64jzP6fENV-Yp_M3RD2df27VTk04TIIzIdyIZmmYHrV1aCWT4CJSNEgICRPjlR-sNF-_7JKXnAGNM0"
+        "drm_license_uri": "https://kd-sfv-preprod.stm.trueid.net/sfv/widevine?appid=tvn&type=sfvseries&visitor=mobile&drm=wv3&uid=22096225&did=MDFlZjUxNGZhNTExMjAzYw&mpass=2mTB3zr1gvfXdd8WHkI21XJLJh9F2qH0U5Z8Vh5Jp-lV6v_uXxkjqs39vviB0a0iQN5x_vqVonNUT-_9I9lWuLZfQZnSDYOiSopkbeVXEXEgIOq6HYqmGnFQxGgEgMVYOz4"
       }
     ]
   },

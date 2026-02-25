@@ -264,7 +264,7 @@ public class SampleChooserActivity extends AppCompatActivity
   private void toggleDownload(MediaItem mediaItem) {
     RenderersFactory renderersFactory =
         DemoUtil.buildRenderersFactory(
-            /* context= */ this, isNonNullAndChecked(preferExtensionDecodersMenuItem));
+            /* context= */ this, isNonNullAndChecked(preferExtensionDecodersMenuItem), /* filterSecureDecoder= */ false);
     downloadTracker.toggleDownload(getSupportFragmentManager(), mediaItem, renderersFactory);
   }
 
